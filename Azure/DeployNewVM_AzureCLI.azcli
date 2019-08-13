@@ -1,0 +1,89 @@
+# Variables
+$LoginUserName="";
+$LoginPassword="";
+
+$ResourceGroupName="psdemo-rg";
+$VNetName="psdemo-vnet-1";
+$SubNetName="psdemo-subnet-1";
+$NetworkPublicIPName="psdemo-windows-1-pip-1";
+$NetworkSecurtyGroupName="psedemo-windows-nsg-1";
+$NicName="psdemo-windows-1-nic-1";
+$VMName="psdemo-windows";
+$ImageName="Win2016Datacenter";
+$MachineUserName="adminuser";
+$MachinePassword="P.ass3040977"
+
+# 1 - Login into Azure Account;
+az login -u $LoginUserName --password $LoginPassword
+
+# 2 - Create a Resource Group;
+az group create --name $ResourceGroupName --location "centralus"
+
+# List the Resource Groups from the subscription;
+az group list -o table
+
+# 3 - Create Virtual Network (VNet) and Subnet
+az network vnet create `
+    --resource-group $ResourceGroupName `
+    --name $VNetName `
+    --address-prefix "10.1.0.0/16"  `
+    --subnet-name $SubNetName `
+    --subnet-prefix "10.1.1.0/24"
+
+# List the Virtual Netwrok from the subscription;
+az network vnet list -o table
+
+# 4 - Create Public IP Address;
+az network public-ip create `
+    --resource-group $ResourceGroupName `
+    --name $NetworkPublicIPName
+
+# 5 - Create Network Security Group;
+az network nsg create `
+    --resource-group $ResourceGroupName `
+    --name $NetworkSecurtyGroupName
+
+# List the Network Security Group from the subscription;
+az network nsg list -o table
+
+
+# 6 - Create a virtual network interface and associate with public IP address and Network Security Group;
+az network nic create `
+    --resource-group $ResourceGroupName `
+    --name $NicName `
+    --vnet-name $VNetName `
+    --subnet $SubNetName `
+    --network-security-group $NetworkSecurtyGroupName `
+    --public-ip-address $NetworkPublicIPName
+
+# List te Network Interface from the subscription;
+az network nic list -o table
+
+# 7 - Create a Virtual Machine
+az vm create `
+    --resource-group $ResourceGroupName `
+    --location "centralus" `
+    --name $VMName `
+    --nics $NicName `
+    --image $ImageName `
+    --admin-username $MachineUserName `
+    --admin-password $MachinePassword `
+    --authentication-type password
+
+# The following command creates a quick machine;
+az vm create `
+    --resource-group $ResourceGroupName `
+    --name $VMName `
+    --image $ImageName `
+    --admin-username $MachineUserName `
+    --admin-password $MachinePassword `
+    --authentication-type password
+
+# List of parameter available with az vm create;
+az vm create --help | more
+
+# Open RDP Port to make the Remote Access works;
+az vm open-port --resource-group $ResourceGroupName --name $VMName --port 3389
+
+# To check the IP Address of the machine
+az vm list-ip-addresses --name $VMName --o table
