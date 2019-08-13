@@ -1,0 +1,83 @@
+USE [JENKINS]
+GO
+
+SET ANSI_NULLS ON
+GO
+
+SET QUOTED_IDENTIFIER ON
+GO
+
+-- =============================================
+-- Author:		<Vinicius Gabriel Cabral Paulino>
+-- Create date: <09 MAR 2019>
+-- Description:	<Parse the Test JSON and insert into the TEST_RESULTS table>
+-- =============================================
+CREATE PROCEDURE [dbo].[ProcessTestJSON]
+    @JOB_NAME VARCHAR(100),
+    @BUILD_NUMBER INT,
+    @JSON VARCHAR(MAX)
+AS
+BEGIN
+
+    -- GET THE DESCRIPTION FROM THE BUILD_RESULTS TABLE;
+    DECLARE @BUILD_DESCRIPTION VARCHAR(MAX);
+    SET @BUILD_DESCRIPTION = (SELECT DESCRIPTION FROM BUILD_RESULTS WHERE JOB_NAME = @JOB_NAME AND BUILD_NUMBER = @BUILD_NUMBER);
+    
+    -- CREATE A TEMP TABLE WITH ALL THE RESULTS;
+    SELECT 
+        ROW_NUMBER() OVER (ORDER BY TESTNAME ASC) AS ID, C.* 
+    INTO #TEMP_RESULTS
+    FROM  OPENJSON(@json, N'lax $.reports')  
+    WITH (
+        TestName		VARCHAR(MAX)    N'$.testName',
+        BuildURL		VARCHAR(MAX)    N'$.url',
+        Agent			VARCHAR(10)     N'$.agent',
+        Duration		VARCHAR(10)     N'$.details.duration',
+        Timestamp		VARCHAR(10)     N'$.details.timestamp',
+        Errors			VARCHAR(10)     N'$.details.errors',
+        Warnings		INT			    N'$.details.warnings',
+        Error			VARCHAR(MAX)	N'$.error',
+        ExitCode		INT			    N'$.exitCode',
+        FailedToStart	VARCHAR(10)     N'$.failedToStart',
+        Sucess			VARCHAR(10)	    N'$.success'
+    ) AS C
+
+    -- CHECK AND CHANGE THE TEST_NAME TO REMOVE THE MAIN FUNCTION AND THE TEST PROJECT;
+    DECLARE @COUNTER INT = 1;
+    WHILE (@COUNTER <= (SELECT MAX(ID) FROM #TEMP_RESULTS))
+    BEGIN
+        DECLARE @TEST_NAME VARCHAR(MAX);
+        SET @TEST_NAME = (SELECT TESTNAME FROM #TEMP_RESULTS WHERE ID = @COUNTER);
+        IF ( (SELECT CHARINDEX('TestCompleteProject/TestCompleteProjectSuite/', @TEST_NAME, 0)) > 0 )
+        BEGIN
+            DECLARE @LENGTH INT = (SELECT LEN('TestCompleteProject/TestCompleteProjectSuite/'));
+            SET @TEST_NAME = (SELECT SUBSTRING(@TEST_NAME, @LENGTH + 1, LEN(@TEST_NAME)));
+            SET @LENGTH = (SELECT CHARINDEX('/', @TEST_NAME, 0));
+            IF (@LENGTH > 0)
+            BEGIN
+                SET @TEST_NAME = (SELECT SUBSTRING(@TEST_NAME, 0, @LENGTH));
+            END
+            UPDATE #TEMP_RESULTS SET TESTNAME = @TEST_NAME WHERE ID = @COUNTER;
+        END
+        SET @COUNTER = @COUNTER + 1;
+    END
+
+    -- REMOVE THE ID COLUMN TO FACILITATE THE INSERT INTO SELECT;
+    ALTER TABLE #TEMP_RESULTS DROP COLUMN ID;
+
+    -- INSERT INTO THE TEST_RESULTS TABLE THE PARSED JSON;
+    INSERT INTO TEST_RESULTS (JOB_NAME, BUILD_NUMBER, TEST_NAME, TEST_REPORT_URL, AGENT, DURATION, TIMESTAMP, ERRORS, WARNINGS, ERROR, EXIT_CODE, FAILED_TO_START, RESULT) 
+    SELECT @JOB_NAME, @BUILD_NUMBER, * FROM #TEMP_RESULTS;
+
+    -- UPDATE THE TEST_RESULTS TABLE WITH THE BUILD DESCRIPTION;
+    UPDATE TEST_RESULTS SET FULL_VERSION = @BUILD_DESCRIPTION WHERE JOB_NAME = @JOB_NAME AND BUILD_NUMBER = @BUILD_NUMBER;
+
+    -- CHECK THE BUILD AS PROCESSED;
+    UPDATE TEST_RESULTS SET PROCESSED = 1 WHERE JOB_NAME = @JOB_NAME AND BUILD_NUMBER = @BUILD_NUMBER;
+    UPDATE TESTS_JSON SET PROCESSED = 1 WHERE JOB_NAME = @JOB_NAME AND BUILD_NUMBER = @BUILD_NUMBER;
+
+END
+
+GO
+
+
